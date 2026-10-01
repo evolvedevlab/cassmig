@@ -1,3 +1,9 @@
+## Installation
+
+go install github.com/evolvedevlab/cassmig/cmd/cassmig@latest
+OR
+Download prebuilt binaries from releases.
+
 ## How to use?
 
 ```sh
@@ -42,3 +48,6 @@ cassmig down ./path-to-migrations-dir --hosts=127.0.0.1 --port=9042
 ```sh
 cassmig reset ./path-to-migrations-dir --hosts=127.0.0.1 --port=9042
 ```
+
+### Migration from Go Code
+- Check the examples directory
