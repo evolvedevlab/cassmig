@@ -1,7 +1,9 @@
 ## Installation
 
-go install github.com/evolvedevlab/cassmig/cmd/cassmig@latest
+`go install github.com/evolvedevlab/cassmig/cmd/cassmig@latest`
+
 OR
+
 Download prebuilt binaries from releases.
 
 ## How to use?
