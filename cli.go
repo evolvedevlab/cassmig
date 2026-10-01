@@ -10,7 +10,7 @@ var (
 		Use:     "cassmig",
 		Short:   "Migration tool for Cassandra DB",
 		Long:    "Migration tool for Cassandra DB",
-		Version: "0.1.0",
+		Version: "1.0.0",
 	}
 
 	createCmd = &cobra.Command{

@@ -52,7 +52,7 @@ func handleUpCmd(cmd *cobra.Command, args []string) error {
 	dir := args[0]
 	root := os.DirFS(dir)
 
-	migs, err := getMigrationsFS(root, MigCmdUp)
+	migs, err := GetMigrationsFS(root)
 	if err != nil {
 		return err
 	}
@@ -81,7 +81,7 @@ func handleDownCmd(cmd *cobra.Command, args []string) error {
 	dir := args[0]
 	root := os.DirFS(dir)
 
-	migs, err := getMigrationsFS(root, MigCmdDown)
+	migs, err := GetMigrationsFS(root)
 	if err != nil {
 		return err
 	}
@@ -110,7 +110,7 @@ func handleResetCmd(cmd *cobra.Command, args []string) error {
 	dir := args[0]
 	root := os.DirFS(dir)
 
-	migs, err := getMigrationsFS(root, MigCmdReset)
+	migs, err := GetMigrationsFS(root)
 	if err != nil {
 		return err
 	}
@@ -144,7 +144,7 @@ func handleStatusCmd(cmd *cobra.Command, args []string) error {
 	dir := args[0]
 	root := os.DirFS(dir)
 
-	migs, err := getMigrationsFS(root, MigCmdReset)
+	migs, err := GetMigrationsFS(root)
 	if err != nil {
 		return err
 	}
@@ -162,11 +162,10 @@ func handleStatusCmd(cmd *cobra.Command, args []string) error {
 	defer migrator.Close()
 
 	var comps []comparison
-	_, appliedMap := migrator.Compare(migs)
-	fmt.Println(len(migrator.migrationsMap))
+	_, notApplied := migrator.Compare(migs)
 	for _, mig := range migs {
 		var comp comparison
-		if _, ok := appliedMap[mig.Version]; !ok {
+		if _, ok := notApplied[mig.Version]; !ok {
 			comp.IsApplied = true
 		}
 
@@ -180,15 +179,21 @@ func handleStatusCmd(cmd *cobra.Command, args []string) error {
 			msg = "applied"
 		}
 
-		fmt.Printf("%s_%s | %s\n", comp.Version, comp.Name, msg)
+		fmt.Printf("%s | %s\n", comp.GetOriginalFilename(), msg)
 	}
 
 	return nil
 }
 
-func getMigrationsFS(root fs.FS, migCmd MigCmd) ([]*Migration, error) {
+func GetMigrationsFS(root fs.FS) ([]*Migration, error) {
 	migrations := make([]*Migration, 0)
 	err := fs.WalkDir(root, ".", func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			if os.IsNotExist(err) {
+				return fmt.Errorf("%s does not exist", root)
+			}
+			return fmt.Errorf("failed to read dir entry from %s", root)
+		}
 		if !d.IsDir() {
 			data, err := fs.ReadFile(root, path)
 			if err != nil {
@@ -205,20 +210,14 @@ func getMigrationsFS(root fs.FS, migCmd MigCmd) ([]*Migration, error) {
 				return fmt.Errorf("missing or invalid up statement in %s", path)
 			}
 
-			var stmt string
 			up := strings.TrimSpace(string(upParts[1]))
 			down := strings.TrimSpace(string(dataParts[1]))
-			if migCmd == MigCmdUp {
-				stmt = up
-			} else if migCmd == MigCmdDown || migCmd == MigCmdReset {
-				stmt = down
-			}
 
 			checksum, err := createFileChecksum(bytes.NewReader(data))
 			if err != nil {
 				return err
 			}
-			if len(stmt) == 0 {
+			if len(up) == 0 && len(down) == 0 {
 				return fmt.Errorf("no statement found for migration %s", path)
 			}
 
@@ -227,7 +226,7 @@ func getMigrationsFS(root fs.FS, migCmd MigCmd) ([]*Migration, error) {
 				Version:    parts[0],
 				Name:       parts[1],
 				Checksum:   checksum,
-				Statements: []string{stmt},
+				Statements: []string{up, down},
 				AppliedAt:  time.Now(),
 			}
 

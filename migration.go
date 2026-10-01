@@ -21,12 +21,23 @@ const (
 	MigCmdReset MigCmd = "reset"
 )
 
+type StatementType int
+
+const (
+	UpStatement StatementType = iota
+	DownStatement
+)
+
 type Migration struct {
 	Version    string
 	Name       string
 	Checksum   string
 	AppliedAt  time.Time
 	Statements []string
+}
+
+func (mig Migration) GetOriginalFilename() string {
+	return fmt.Sprintf("%s_%s", mig.Version, mig.Name)
 }
 
 type Migrator struct {
@@ -69,7 +80,7 @@ func (m *Migrator) Execute(ctx context.Context, cmd MigCmd, migrations []*Migrat
 		for _, mig := range migrations {
 			for _, stmt := range mig.Statements {
 				if err := m.session.Query(stmt).ExecContext(ctx); err != nil {
-					return err
+					return fmt.Errorf("%s statement error: %v", mig.GetOriginalFilename(), err)
 				}
 			}
 		}
@@ -93,10 +104,8 @@ func (m *Migrator) Execute(ctx context.Context, cmd MigCmd, migrations []*Migrat
 			return fmt.Errorf("latest migration not found in filesystem")
 		}
 
-		for _, stmt := range latest.Statements {
-			if err := m.session.Query(stmt).ExecContext(ctx); err != nil {
-				return err
-			}
+		if err := m.session.Query(latest.Statements[DownStatement]).ExecContext(ctx); err != nil {
+			return fmt.Errorf("%s statement error: %v", latest.GetOriginalFilename(), err)
 		}
 		return m.storeState(ctx, cmd, []*Migration{latest})
 	}
@@ -107,18 +116,18 @@ func (m *Migrator) Execute(ctx context.Context, cmd MigCmd, migrations []*Migrat
 	}
 
 	for _, mig := range m.toBeApplied {
-		for _, stmt := range mig.Statements {
-			if err := m.session.Query(stmt).ExecContext(ctx); err != nil {
-				return err
-			}
+		if err := m.session.Query(mig.Statements[UpStatement]).ExecContext(ctx); err != nil {
+			return fmt.Errorf("%s statement error: %v", mig.GetOriginalFilename(), err)
 		}
 	}
 	return m.storeState(ctx, cmd, m.toBeApplied)
 }
 
+// Compare compares DB applied migration state with local files and returns
+// migrations that has not been applied yet.
 func (m *Migrator) Compare(migrations []*Migration) ([]*Migration, map[string]*Migration) {
-	toBeApplied := make([]*Migration, 0)
-	toBeAppliedMap := make(map[string]*Migration)
+	notApplied := make([]*Migration, 0)
+	notAppliedMap := make(map[string]*Migration)
 	for _, new := range migrations {
 		// compare with db mig checksum
 		if old, ok := m.migrationsMap[new.Version]; ok {
@@ -127,10 +136,10 @@ func (m *Migrator) Compare(migrations []*Migration) ([]*Migration, map[string]*M
 			}
 		}
 
-		toBeAppliedMap[new.Version] = new
-		toBeApplied = append(toBeApplied, new)
+		notAppliedMap[new.Version] = new
+		notApplied = append(notApplied, new)
 	}
-	return toBeApplied, toBeAppliedMap
+	return notApplied, notAppliedMap
 }
 
 func (m *Migrator) Close() error {
@@ -195,7 +204,7 @@ func (m *Migrator) getAll() ([]*Migration, error) {
 
 	sc := it.Scanner()
 
-	migs := []*Migration{}
+	migs := make([]*Migration, 0)
 	for sc.Next() {
 		var m Migration
 		if err := sc.Scan(&m.Version, &m.Name, &m.Checksum, &m.AppliedAt); err != nil {
