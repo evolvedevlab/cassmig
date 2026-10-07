@@ -78,10 +78,8 @@ func NewMigrator(session *gocql.Session) (*Migrator, error) {
 func (m *Migrator) Execute(ctx context.Context, cmd MigCmd, migrations []*Migration) error {
 	if cmd == MigCmdReset {
 		for _, mig := range migrations {
-			for _, stmt := range mig.Statements {
-				if err := m.session.Query(stmt).ExecContext(ctx); err != nil {
-					return fmt.Errorf("%s statement error: %v", mig.GetOriginalFilename(), err)
-				}
+			if err := m.session.Query(mig.Statements[DownStatement]).ExecContext(ctx); err != nil {
+				return fmt.Errorf("%s statement error: %v", mig.GetOriginalFilename(), err)
 			}
 		}
 		return m.storeState(ctx, cmd, migrations)
